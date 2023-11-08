@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wbx_admin_utils"
+version = "1.1.8"
+description = "A collection of utilities for Webex Control Hub admins and compliance officers"
+readme = "README.md"
+authors = [{ name = "Stephane Cohen", email = "stecohen@gmail.com" }]
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+]
+keywords = ["Webex", "Control Hub", "groups"]
+requires-python = ">=3.10"
+dependencies = [
+  'requests', 
+  'numpy'
+]
+
+[project.optional-dependencies]
+
+[project.urls]
+
+[project.scripts]
+
+
