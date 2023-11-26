@@ -7,9 +7,7 @@ import json
 import logging
 import time
 import argparse
-import re
-import urllib
-import numpy            
+import re         
 
 logging.basicConfig()
 
