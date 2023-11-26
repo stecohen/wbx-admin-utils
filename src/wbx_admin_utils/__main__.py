@@ -36,15 +36,28 @@ if (DEBUG>=3):
     requests_log.setLevel(logging.DEBUG)
 
 
+###################
+### UTILS functions 
+###################
+
+
+def trace(lev, msg):
+    if (DEBUG >= lev ):
+        print(msg)
+
+def is_email_format(id):
+    trace (3, f"In  is_email_format for {id}")  
+    m = re.search(".+@.+\..+$", id)
+    if (m) :
+        return (True)
+    else:
+        return(False)
+
 #sets the header to be used for authentication and data format to be sent.
 def setHeaders():         
     accessToken_hdr = 'Bearer ' + args.token
     spark_header = {'Authorization': accessToken_hdr, 'Content-Type': 'application/json; charset=utf-8'}
     return (spark_header)
-
-def trace(lev, msg):
-    if (DEBUG >= lev ):
-        print(msg)
 
 # print items array fields listed in 'il' 
 #
@@ -60,6 +73,30 @@ def print_items(il, items):
                 v=""
             print (v, ",", end='', sep='')
         print ("")
+
+# returms user details in json for given user id
+# returns "" if not found or some error   
+#
+def get_user_details(email_or_uid): 
+
+    trace (3, f"In get_user_details for {email_or_uid}")  
+
+    if ( is_email_format(email_or_uid)):
+        uid = get_user_id(email_or_uid)
+        if (uid=="") :
+            return ""
+    else:
+        uid=email_or_uid
+
+    url=f"https://webexapis.com/v1/people/{uid}"
+    r = requests.request("GET", url, headers=setHeaders())
+    s = r.status_code
+    if s == 200 :
+        trace(3,f"found {uid}")
+        return(r.json())
+    else:
+        trace(1,f"did not find {uid}")
+        return("")
 
 # returms user id of given user email address 
 # returns "" if not found or some error   
@@ -94,6 +131,48 @@ def get_user_id(ue):
     else :
         trace(1,f"get_user_id got error {s}: {r.reason}")  
         return("")
+    
+# calls given fct for each user in given csv file 
+# csv file name  is pointed by the 'index' parameter in the passed array 'a'
+# the called fucnt parameters are passed via an array containing the rest of the input array a + email inserted
+# exits on file error 
+#
+def user_csv_command(fct, a, index=0):
+
+    trace (3,f"in user_csv_command {fct.__name__} {a} {index}")
+    file=a.pop(index)
+
+    header=setHeaders()
+    # disable warnings about using certificate verification
+    requests.packages.urllib3.disable_warnings()
+    
+    try:
+        csvfile = open(file)
+        trace(3,f"{file} open OK")
+    except OSError:
+        print (f"Could not open file {file}")
+        exit()
+
+    with csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            ue=row['email']
+            # call provided function with email inserted 
+            a2=a.copy()
+            a2.insert(index + 1, ue)
+            trace(3,f"in user_csv_command calling fct with {a2}")
+            r=fct(a2)
+            if (r>0):
+                trace(3,f"{fct.__name__} command successful for user {ue}") 
+            else:
+                trace(1,f"{fct.__name__} command failed for user {ue}")
+            time.sleep(0.01)
+
+
+
+###################
+### GROUPS commands 
+###################
 
 # lists all groups 
 #
@@ -120,7 +199,7 @@ def list_users_in_grp(a):
     s = r.status_code
     j = r.json()
     if s == 200 :
-        # print(j)
+        print(j)
         hl =[ 'id', 'displayName' ]
         print_items ( hl, j["members"] )
     else:
@@ -178,6 +257,40 @@ def user_to_grp(a):
     else:
         trace(1,f"user_to_grp: Failed to find user email {ue}") 
         return(0)
+    
+def add_user_to_grp(a):
+    a.insert(0,"add")
+    user_to_grp(a)
+
+def del_user_to_grp(a):
+    a.insert(0,"del")
+    user_to_grp(a)
+
+def add_users_in_csv_to_grp(a):
+    a.insert(1,"add")
+    user_csv_command(user_to_grp, a)
+
+def del_users_in_csv_to_grp(a):
+    a.insert(1,"del")
+    user_csv_command(user_to_grp, a)
+
+def uf_add_user_to_grp(a):
+    m = re.search(".*\.csv$", a[0])
+    if (m):
+        user_csv_command(add_user_to_grp, a)
+    else:
+        add_user_to_grp(a)
+
+def uf_del_user_to_grp(a):
+    m = re.search(".*\.csv$", a[0])
+    if (m):
+        user_csv_command(del_user_to_grp, a)
+    else:
+        del_user_to_grp(a)  
+
+###################
+### VM  commands 
+###################
 
 # returns json body with VM settings for given user email
 # returns -1 on failure 
@@ -254,61 +367,16 @@ def set_user_vm_based_on_other_user(a):
         trace(1,"get_user_vm error")
         return(-1)
 
+def add_vm(a): 
+    set_user_vm_based_on_other_user(a)
 
-# calls given fct for each user in given csv file 
-# csv file is the first parameter of the a array 
-# the called fucnt parameters are passed via an array containing the rest of the input array a + email inserted
-# exits on file error 
-#
-def user_csv_command(fct, a):
+def uf_add_vm_csv(a): 
+    m = re.search(".*\.csv$", a[0])
+    if (m):
+        user_csv_command(add_vm, a)
+    else:
+        add_vm(a)
 
-    trace(3,f"in user_csv_command {fct.__name__} {a}")
-    file=a.pop(0)
-
-    header=setHeaders()
-    # disable warnings about using certificate verification
-    requests.packages.urllib3.disable_warnings()
-    
-    try:
-        csvfile = open(file)
-        trace(3,f"{file} open OK")
-    except OSError:
-        print (f"Could not open file {file}")
-        exit()
-
-    with csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            ue=row['email']
-            # call provided function with email inserted 
-            a2=a.copy()
-            a2.insert(1, ue)
-            trace(3,f"in user_csv_command calling fct with {a2}")
-            r=fct(a2)
-            if (r>0):
-                trace(3,f"{fct.__name__} command successful for user {ue}") 
-            else:
-                trace(1,f"{fct.__name__} command failed for user {ue}")
-            time.sleep(0.01)
-
-################
-## GROUPS
-################
-def add_user_to_grp(a):
-    a.insert(0,"add")
-    user_to_grp(a)
-
-def del_user_to_grp(a):
-    a.insert(0,"del")
-    user_to_grp(a)
-
-def add_users_in_csv_to_grp(a):
-    a.insert(1,"add")
-    user_csv_command(user_to_grp, a)
-
-def del_users_in_csv_to_grp(a):
-    a.insert(1,"del")
-    user_csv_command(user_to_grp, a)
 
 ###############
 ## USERS DELETE
@@ -337,64 +405,63 @@ def del_user(a):
         trace (1, f"del_user: {ue} not found")  
         return(-1)
     
+def uf_del_user(a):
+    m = re.search(".*\.csv$", a[0])
+    if (m):
+        user_csv_command(del_user,a)
+    else:
+        del_user(a)
+    
 ###############
-## USERS DEACTIVATION 
+## USER (DE)ACTIVATION 
 ################
 
-# deactivate user from given email 
+# activate or deactivate user from given email 
 # returns 1 if good   
 #
-def deactivate_user(a): 
-    ue=a[0]
+def set_user_active(a): 
+    activate=a[0] # boolean 
+    ue=a[1]
     trace(3,f"in deactivate_user {a}")
-
-    uid=get_user_id(ue)
-    if (uid): 
+    user_json=get_user_details(ue)
+    if (user_json):
+        uid=user_json['id']
         url=f"https://webexapis.com/v1/people/{uid}"
         r = requests.request("GET", url, headers=setHeaders())
-        s = r.status_code
-        if s == 200 :
-            d=r.json()
-            d['loginEnabled']=False
-            trace(3, f"found user {ue} : sending {d}") 
-            b=json.dumps(d)
-            r = requests.put(url, headers=setHeaders(), data=b, verify=True)
-            s = r.status_code
-            if s in (200,204) :
-                trace(2, f"user {ue} : deactivated")     
-                return(1)
-            else:
-                trace(1,f"deactivate_user : Error {s}")  
-                trace(1,r.text.encode('utf8'))
-                return(-1)
+        if ( activate ):
+            user_json['loginEnabled']=True
         else:
-            trace(1,f"deactivate_user : Error {s}")  
+            user_json['loginEnabled']=False
+        trace(3, f"found user {ue} : sending {user_json}") 
+        b=json.dumps(user_json)
+        r = requests.put(url, headers=setHeaders(), data=b, verify=True)
+        s = r.status_code
+        if s in (200,204) :
+            trace(2, f"user {ue}: active status set to {user_json['loginEnabled']} successfully ")     
+            return(1)
+        else:
+            trace(1,f"actvivate/deactivate_user : Error {s}")  
             trace(1,r.text.encode('utf8'))
             return(-1)
     else:
-        trace (1, f"deactivate_user: {ue} not found")  
+        trace(1,f"deactivate_user Error ")  
         return(-1)
-    
 
-# wrapper to decide if passed parameter is single user email or .csv 
 # 
-def uf_deactivate_user(a):
-    m = re.search(".*\.csv$", a[0])
+def uf_activate_user(a):
+    match a[0]:
+        case 'Yes' | 'yes':
+            a[0]=True
+        case 'No' | 'no':
+            a[0]=False
+        case _:
+            trace(1,f"Expecting 'Yes' to activate or 'No' to deactivate") 
+            return(-1)
+    m = re.search(".*\.csv$", a[1])
     if (m):
-        user_csv_command(deactivate_user,a)
+        user_csv_command(set_user_active,a,1)
     else:
-        deactivate_user(a)
-
-def uf_del_user(a):
-    if (del_user(a) > 0):
-        print (f"User {a[0]} successfully deleted")  
-    else:
-        print (f"Error. User {a[0]} not deleted")  
-
-
-def del_users_in_csv(a):
-    user_csv_command(del_user,a)
-
+        set_user_active(a)
 
 ###############
 ## USERS ACCESS TOKEN
@@ -458,10 +525,13 @@ def user_auths(cmd, a):
         trace (1, f"reset_user: {ue} not found")  
         return(-1)
 
-# delete all access for user email passed as array 
-# ( user facing )
-def uf_del_user_auths(a):
-    user_auths("del", a) 
+def uf_get_user_details(a):
+    j=get_user_details(a[0])
+    if (j):
+        print (j)
+    else:
+        print ("That did not work")
+    
 
 # delete all access for user email passed as array 
 # (not user facing )
@@ -470,19 +540,21 @@ def del_all_user_auths(a):
     return(user_auths("del", a))
 
 def uf_list_user_auths(a):
-    return(user_auths("list", a))
+    m = re.search(".*\.csv$", a[0])
+    if (m):
+        user_csv_command(uf_list_user_auths, a, 0)
+    else:
+        return(user_auths("list", a))
+    
 
-def list_users_auth_in_csv(a):
-    user_csv_command(uf_list_user_auths, a)
-
-def reset_users_in_csv(a):
-    user_csv_command(del_all_user_auths, a)
-
-def add_vm(a): 
-    set_user_vm_based_on_other_user(a)
-
-def add_vm_csv(a): 
-    user_csv_command(add_vm, a)
+# reset all access for user email passed as array 
+# ( user facing )
+def uf_del_user_auths(a):
+    m = re.search(".*\.csv$", a[0])
+    if (m):
+        user_csv_command(del_all_user_auths, a)
+    else:
+        user_auths("del", a) 
 
 
 ###############
@@ -506,28 +578,22 @@ def print_syntax():
 
 syntax = { 
     "help" : { 
-        "commands":                 {"params":[],"fct":print_syntax, "help":"Displays the list of commands"},
+        "commands":              {"params":[],"fct":print_syntax, "help":"display list of available commands"},
     },
     "group" : {
         "list":                 {"params":[],"fct":get_grps_list, "help":"list all groups in admin org"},
-        "list-users":           {"params":["group_id"],"fct":list_users_in_grp, "help":"list user ids in given group id"},
-        "add-user":             {"params":["email", "group_id"],"fct":add_user_to_grp, "help":"add user email in given group id"},
-        "add-users-in-csv":     {"params":["file", "group_id"],"fct":add_users_in_csv_to_grp, "help":"add user listed in CSV file in given group id"},
-        "remove-user":          {"params":["email", "group_id"],"fct":del_user_to_grp, "help":"remove user email from given group id"},
-        "remove-users-in-csv":  {"params":["file", "group_id"],"fct":del_users_in_csv_to_grp, "help":"remove users listed in CSV file in given group id"}, 
+        "list-users":           {"params":["group_id"],"fct":list_users_in_grp, "help":"list user ids (max 500) in given group id"},
+        "add-user":             {"params":["email|csvFile", "group_id"],"fct":uf_add_user_to_grp, "help":"add user in given group id"},
+        "remove-user":          {"params":["email|csvFile", "group_id"],"fct":uf_del_user_to_grp, "help":"remove user from given group id"},
     },
     "user" : {  
-        # "help":                  {"params":[],"fct":print_help},
-        "list-user-tokens":        {"params":["email"],"fct":uf_list_user_auths, "help":"list user access token"},
-        "list-user-tokens-csv":    {"params":["file"],"fct":list_users_auth_in_csv, "help":"list access tokens for users in csv file"},
-        "reset-access":          {"params":["email"],"fct":uf_del_user_auths, "help":"reset user access token"},
-        "deactivate":          {"params":["email|csvFile"],"fct":uf_deactivate_user, "help":"de-activate user account. "},
-        "reset-access-csv":   {"params":["file"],"fct":reset_users_in_csv, "help":"reset user access token from CSV"},
-        "delete-user":           {"params":["email"],"fct":uf_del_user, "help":"delete user "},
-        "delete-users-csv":   {"params":["file"],"fct":del_users_in_csv, "help":"delete users listed via email address in given CSV file"},
-        "get-voicemail":         {"params":["email"],"fct":get_user_vm, "help":"dump user voicemail settings in json format"},
-        "add-voicemail":         {"params":["email", "base user email"],"fct":add_vm, "help":"set user voicemail options based on another user's voicemail settings "},
-        "add-voicemail-csv":{"params":["file", "base user email"],"fct":add_vm_csv, "help":"set voicemail options based on another user's voicemail settings for all users listed in CSV file"},
+        "details":               {"params":["email|user_id"],"fct":uf_get_user_details, "help":"list user details in json"},
+        "tokens":                {"params":["email|csvFile"],"fct":uf_list_user_auths, "help":"list user(s) access token"},
+        "reset":                 {"params":["email|csvFile"],"fct":uf_del_user_auths, "help":"reset user(s) access token"},
+        "activate":              {"params":["Yes|No","email|csvFile"],"fct":uf_activate_user, "help":"activate (Yes) or deactivate (No) user(s)"},
+        "delete":                {"params":["email|csvFile"],"fct":uf_del_user, "help":"delete user(s)"},
+        "get-vm":                {"params":["email"],"fct":get_user_vm, "help":"dump user voicemail settings in json format"},
+        "add-vm":                {"params":["email|csvFile", "base user email"],"fct":add_vm, "help":"set user(s) voicemail options based on another user's voicemail settings "},
     }
 }
 
