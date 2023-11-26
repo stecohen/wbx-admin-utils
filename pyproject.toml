@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wbx_admin_utils"
-version = "1.2.0"
+version = "1.2.1"
 description = "A collection of utilities for Webex Control Hub admins and compliance officers"
 readme = "README.md"
 authors = [{ name = "Stephane Cohen", email = "stecohen@gmail.com" }]
@@ -18,8 +18,9 @@ keywords = ["Webex", "Control Hub", "groups"]
 requires-python = ">=3.10"
 dependencies = [
   'requests', 
-  'numpy'
 ]
+repository = "https://github.com/stecohen/wbx-admin-utils"
+
 
 [project.optional-dependencies]
 

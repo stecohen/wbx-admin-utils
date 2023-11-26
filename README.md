@@ -1,11 +1,9 @@
-# wbx-admin-utils
-
 ## Usage:
-python3 -m wbx_admin_utils [options] command subcommand [parameters]
-
-## Commands list and syntax:
+( You might need to replace "python3" for "python3" )
 ```
-python3 -m wbx_admin_utils help commands 
+python3 -m wbx_admin_utils [options] command subcommand [parameters]
+python3 -m wbx_admin_utils help commands # shows the full list of available commmands
+
 ```
 
 ## Commands:
@@ -29,22 +27,33 @@ user
 
 ## Options:
 * -t \<token\> Adds access token as a parameter. Will be read from AUTH_BEARER Env Variable by defaut. Yyou can get your personal access token from [webex developper](https://developer.webex.com/docs/getting-your-personal-access-token)
-* -d \<debugLevel> from 0 to 3 (most verbose). Default is 2 (info level)    
+* -d \<debugLevel> from 0 to 3 (most verbose). Default is 2 (info level)
 
 ## Examples:
-* Python3 -m wbx_admin_utils group list            
-* Python3 -m wbx_admin_utils group list-users ``<groupid>``
-* Python3 -m wbx_admin_utils group add-user user1@customer.com ``<groupid\>``
-* Python3 -m wbx_admin_utils group remove-user /tmp/users.csv ``<groupid>``
-* Python3 -m wbx_admin_utils user reset-access /tmp/users.csv
-* Python3 -m wbx_admin_utils user deactivate /tmp/users.csv
+```
+# List user groups in CH Org
+python3 -m wbx_admin_utils group list
+
+# List users in group id
+python3 -m wbx_admin_utils group list-users ``<groupid>``
+
+# Add or remove users in specified group id
+python3 -m wbx_admin_utils group add-user user1@customer.com ``<groupid\>``
+python3 -m wbx_admin_utils group remove-user /tmp/users.csv ``<groupid>``
+
+# Reset (force log-out) user access tokens
+python3 -m wbx_admin_utils user reset /tmp/users.csv
+
+# Activate or deactivate users
+python3 -m wbx_admin_utils user activate Yes user1@customer.com
+python3 -m wbx_admin_utils user activate No /tmp/users.csv
+```
+
 
 ## CSV input file format:
 ```
-email, comments 
-user1@customer.com, some optinal info about user1 
-user2@customer.com, some optinal info about user1 
+email, comments
+user1@customer.com, some optinal info about user1
+user2@customer.com, some optinal info about user1
 ```
 The first column is currenlty processed and must be titled 'email' other columns are optional and ignored.
-
-
