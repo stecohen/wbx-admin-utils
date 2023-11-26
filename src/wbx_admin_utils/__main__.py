@@ -634,24 +634,3 @@ def main():
     #
    
 main()
-
-# leftovers 
-vm_tmpl = """
-{
-    "enabled": true,
-    "notifications": {
-            "enabled": false,
-    },
-    "sendBusyCalls": {
-            "enabled": true,
-            "greeting": "DEFAULT"
-    },
-    "sendUnansweredCalls": {
-            "enabled": true,
-            "greeting": "DEFAULT",
-            "numberOfRings": 3
-    },
-    "transferToNumber": {
-            "enabled": false
-    },
-"""
