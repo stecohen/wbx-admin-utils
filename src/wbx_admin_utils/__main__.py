@@ -153,18 +153,26 @@ def user_csv_command(fct, a, index=0):
 
     with csvfile:
         reader = csv.DictReader(csvfile)
+        found_email_col=False
         for row in reader:
-            ue=row['email']
-            # call provided function with email inserted 
-            a2=a.copy()
-            a2.insert(index + 1, ue)
-            trace(3,f"in user_csv_command calling fct with {a2}")
-            r=fct(a2)
-            if (r>0):
-                trace(3,f"{fct.__name__} command successful for user {ue}") 
-            else:
-                trace(1,f"{fct.__name__} command failed for user {ue}")
-            time.sleep(0.01)
+            for em in ['email', 'Email', 'EMAIL']:
+                if em in row:
+                    found_email_col=True
+                    ue=row[em]
+                    # call provided function with email inserted 
+                    a2=a.copy()
+                    a2.insert(index + 1, ue)
+                    trace(3,f"in user_csv_command calling fct with {a2}")
+                    r=fct(a2)
+                    if (r>0):
+                        trace(3,f"{fct.__name__} command successful for user {ue}") 
+                    else:
+                        trace(1,f"{fct.__name__} command failed for user {ue}")
+                    time.sleep(0.01)
+            if not found_email_col :
+                print (f"Cannot find 'email' column in {file}.\nCheck format, special characters ect.")
+                exit()
+            
 
 
 
