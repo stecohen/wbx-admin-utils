@@ -7,7 +7,9 @@ import json
 import logging
 import time
 import argparse
-import re         
+import re      
+import datetime
+import io    
 
 logging.basicConfig()
 
@@ -33,11 +35,12 @@ if (DEBUG>=3):
     requests_log = logging.getLogger("requests.packages.urllib3")
     requests_log.setLevel(logging.DEBUG)
 
+NOW = datetime.datetime.now()
+UTCNOW = NOW.isoformat() + 'Z'
 
 ###################
 ### UTILS functions 
 ###################
-
 
 def trace(lev, msg):
     if (DEBUG >= lev ):
@@ -173,8 +176,6 @@ def user_csv_command(fct, a, index=0):
                 print (f"Cannot find 'email' column in {file}.\nCheck format, special characters ect.")
                 exit()
             
-
-
 
 ###################
 ### GROUPS commands 
@@ -562,6 +563,113 @@ def uf_del_user_auths(a):
     else:
         user_auths("del", a) 
 
+###############
+## Comp Officer stuff 
+################
+
+# generic events API 
+# 
+def get_events(opts):
+    url=f"https://webexapis.com/v1/events{opts}"
+    trace(3, f"In get_events {url} ")
+    try:
+        r = requests.get(url, headers=setHeaders())
+        s = r.status_code
+        if (s == 200):
+            d = r.json()
+            trace(3, f"success for get_events")  
+            return(d)
+        else:
+            trace(1,f"get_events error {s}: {r.reason}")  
+
+    except requests.exceptions.RequestException as e:
+        trace(1, f"error {e}")
+
+# pull msg info in csv fmt  
+# 
+def extract_msgs_csv(data):
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(['created','text','roomId'])
+    for item in data['items']:
+        msg=item['data']
+        if ('created' in msg and 'text' in msg):
+            writer.writerow([item['created'], msg['text'], msg['roomId']])
+    print (output.getvalue())
+
+# user facing top level fct 
+# get messages for given user email 
+# optional parameters passed as json string like '{"max":1000}'
+# 
+def uf_get_user_msgs(a):
+    uid = get_user_id(a[0])
+    frm = datetime.datetime.now() - datetime.timedelta(30)
+    utcFrm=frm.isoformat() + 'Z'
+    to = UTCNOW
+    opts = {'max': 100,'from':utcFrm,'to':to}
+
+    if (uid):
+        # override default options w/ user options
+        #
+        if (a[1]):   
+            userOpts=json.loads(a[1])
+            for k in userOpts:
+                opts[k]=userOpts[k]
+
+        # construct url parameter string
+        #
+        params=f"?resource=messages&actorId={uid}"
+        for k in opts:
+            params=f"{params}&{k}={opts[k]}"
+        trace (3, f"params = {params}")
+        d=get_events(params)
+        extract_msgs_csv(d)
+
+    else:
+        trace(1, f"cannot find user {a[0]}")
+ 
+# pull membership info in csv fmt  
+# 
+def extract_membership_csv(data):
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+    fields=['personEmail','personDisplayName', 'created']
+    writer.writerow(fields)
+
+    for item in data['items']:
+        row=[]
+        for f in fields:
+            row.append(item[f])
+        writer.writerow(row)
+    print (output.getvalue())
+
+# get membership list for given room id  
+# 
+def get_space_memberships(rid):
+    url=f"https://webexapis.com/v1/memberships/?roomId={rid}"
+    trace(3, f"In get_memberships {url} ")
+    try:
+        r = requests.get(url, headers=setHeaders())
+        s = r.status_code
+        if (s == 200):
+            d = r.json()
+            trace(3, f"success for get_memberships")  
+            return(d)
+        else:
+            trace(1,f"get_events error {s}: {r.reason}")  
+
+    except requests.exceptions.RequestException as e:
+        trace(1, f"error {e}")
+
+
+# user facing top level fct 
+# get memberships for given room id 
+# 
+def uf_get_memberships(a):
+    id = a[0]
+    data = get_space_memberships(id)
+    extract_membership_csv(data)
+
 
 ###############
 ## syntax
@@ -600,6 +708,10 @@ syntax = {
         "delete":                {"params":["email|csvFile"],"fct":uf_del_user, "help":"delete user(s)"},
         "get-vm":                {"params":["email"],"fct":get_user_vm, "help":"dump user voicemail settings in json format"},
         "add-vm":                {"params":["email|csvFile", "base user email"],"fct":add_vm, "help":"set user(s) voicemail options based on another user's voicemail settings "},
+    },
+    "co" : {
+        "list-messages" :        {"params":["email"],"fct":uf_get_user_msgs, "help":"list messages for a user"}, 
+        "list-space-members" :   {"params":["id"],"fct":uf_get_memberships, "help":"list menbers in space "},            
     }
 }
 
@@ -629,7 +741,7 @@ def main():
     # check param count
     #
     par_arr=syntax[cmd1][cmd2]['params']
-    if (len(args.parameters) == len(par_arr)):
+    if (len(args.parameters) >= len(par_arr)):
         # call function associated with command 
         fct=syntax[cmd1][cmd2]['fct']
         trace(3,f"in main: calling {fct.__name__} with {args.parameters}")
