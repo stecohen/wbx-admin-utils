@@ -606,12 +606,12 @@ def uf_get_user_msgs(a):
     frm = datetime.datetime.now() - datetime.timedelta(30)
     utcFrm=frm.isoformat() + 'Z'
     to = UTCNOW
-    opts = {'max': 100,'from':utcFrm,'to':to}
+    opts = {'max': 1000,'from':utcFrm,'to':to}
 
     if (uid):
         # override default options w/ user options
         #
-        if (a[1]):   
+        if (len(a)==2):
             userOpts=json.loads(a[1])
             for k in userOpts:
                 opts[k]=userOpts[k]
@@ -710,8 +710,8 @@ syntax = {
         "add-vm":                {"params":["email|csvFile", "base user email"],"fct":add_vm, "help":"set user(s) voicemail options based on another user's voicemail settings "},
     },
     "co" : {
-        "list-messages" :        {"params":["email"],"fct":uf_get_user_msgs, "help":"list messages for a user"}, 
-        "list-space-members" :   {"params":["id"],"fct":uf_get_memberships, "help":"list menbers in space "},            
+        "list-messages" :        {"params":["email, 'options'"],"fct":uf_get_user_msgs, "help":"list messages sent by a user (last 30 days by default) up to 1000 msgs. See expmaples for Options format."}, 
+        "list-space-members" :   {"params":["id"],"fct":uf_get_memberships, "help":"list members in space "},            
     }
 }
 

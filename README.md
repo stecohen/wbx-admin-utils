@@ -23,11 +23,18 @@ user
    delete <email|csvFile> : delete user(s)
    get-vm <email> : dump user voicemail settings in json format
    add-vm <email|csvFile> <base user email> : set user(s) voicemail options based on another user's voicemail settings
+co
+   list-messages <email, 'options'> : list messages sent by a user
+   list-space-members <id> : list menbers in space
 ```
 
 ## Options:
 * -t \<token\> Adds access token as a parameter. Will be read from AUTH_BEARER Env Variable by defaut. Yyou can get your personal access token from [webex developper](https://developer.webex.com/docs/getting-your-personal-access-token)
 * -d \<debugLevel> from 0 to 3 (most verbose). Default is 2 (info level)
+
+## co (compliance officer) commands 
+* list-messages option format is in json format as per the 'event' API command 
+* all results are displayed in .CSV format 
 
 ## Examples:
 ```
@@ -38,7 +45,7 @@ python3 -m wbx_admin_utils group list
 python3 -m wbx_admin_utils group list-users ``<groupid>``
 
 # Add or remove users in specified group id
-python3 -m wbx_admin_utils group add-user user1@customer.com ``<groupid\>``
+python3 -m wbx_admin_utils group add-user user1@customer.com ``<groupid>``
 python3 -m wbx_admin_utils group remove-user /tmp/users.csv ``<groupid>``
 
 # Reset (force log-out) user access tokens
@@ -47,6 +54,14 @@ python3 -m wbx_admin_utils user reset /tmp/users.csv
 # Activate or deactivate users
 python3 -m wbx_admin_utils user activate Yes user1@customer.com
 python3 -m wbx_admin_utils user activate No /tmp/users.csv
+
+# list messages sent by user (default from = 30 days ago, default to = today)
+python3 -m wbx_admin_utils co list-messages user1@customer.com > report.csv 
+python3 -m wbx_admin_utils co list-messages user1@customer.com '{"from":"2022-10-20T00:00:00.000Z", "to":"2023-10-20T00:00:00.000Z" }'
+
+# list members of a space  
+python3 -m wbx_admin_utils co list-space-members <spaceid>
+
 ```
 
 
