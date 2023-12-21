@@ -99,6 +99,28 @@ def get_user_details(email_or_uid):
         trace(1,f"did not find {uid}")
         return("")
 
+# generic get data 
+# returns {} if not happy  
+#
+def get_wbx_data(ep, params):
+    url = "https://webexapis.com/v1/" + ep + params
+    trace(3, f"In get_wbx_data {url} ")
+    try:
+        r = requests.get(url, headers=setHeaders())
+        s = r.status_code
+        if (s == 200):
+            d = r.json()
+            trace(3, f"success for get_memberships")  
+            return(d)
+        else:
+            trace(1,f"get_wbx_data error {url} {s}: {r.reason}")  
+            return({})
+
+    except requests.exceptions.RequestException as e:
+        trace(1, f"error {e}")
+
+
+
 # returms user id of given user email address 
 # returns "" if not found or some error   
 #
@@ -176,7 +198,6 @@ def user_csv_command(fct, a, index=0):
                 print (f"Cannot find 'email' column in {file}.\nCheck format, special characters ect.")
                 exit()
             
-
 ###################
 ### GROUPS commands 
 ###################
@@ -567,6 +588,16 @@ def uf_del_user_auths(a):
 ## Comp Officer stuff 
 ################
 
+# get the 'other' (apart from given 'uid') person membership in a direct 1:1 space
+# 
+def get_other_person_membership(roomId, uid):
+    trace(3, f"In get_other_person {roomId} {uid} ")
+    members=get_space_memberships(roomId)
+    for item in members['items']:
+        if (item['id'] != uid):
+            return(item)
+    return{}
+
 # generic events API 
 # 
 def get_events(opts):
@@ -590,11 +621,21 @@ def get_events(opts):
 def extract_msgs_csv(data):
     output = io.StringIO()
     writer = csv.writer(output, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-    writer.writerow(['created','text','roomId'])
+    writer.writerow(['created','text','title','roomId'])
     for item in data['items']:
         msg=item['data']
+        title="N/A"
+        if 'roomId' in msg:
+            # direct rooms don't have a title. Need to extract the 'other' member in the space
+            if (msg['roomType'] == 'direct'):
+                other_member=get_other_person_membership(msg['roomId'],msg['personId'])
+                title=f"{other_member['personDisplayName']} ({other_member['personEmail']})"
+            else:
+                room=get_wbx_data(f"rooms/{msg['roomId']}","")
+                title=room['title']
+                #print(title)       
         if ('created' in msg and 'text' in msg):
-            writer.writerow([item['created'], msg['text'], msg['roomId']])
+            writer.writerow([item['created'], msg['text'], title, msg['roomId']])
     print (output.getvalue())
 
 # user facing top level fct 
