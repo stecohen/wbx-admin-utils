@@ -102,7 +102,7 @@ def get_user_details(email_or_uid):
 # generic get data 
 # returns {} if not happy  
 #
-def get_wbx_data(ep, params):
+def get_wbx_data(ep, params, ignore_error=False):
     url = "https://webexapis.com/v1/" + ep + params
     trace(3, f"In get_wbx_data {url} ")
     try:
@@ -113,7 +113,7 @@ def get_wbx_data(ep, params):
             trace(3, f"success for get_memberships")  
             return(d)
         else:
-            trace(1,f"get_wbx_data error {url} {s}: {r.reason}")  
+            not ignore_error and trace(1,f"get_wbx_data error {url} {s}: {r.reason}")  
             return({})
 
     except requests.exceptions.RequestException as e:
@@ -592,11 +592,12 @@ def uf_del_user_auths(a):
 # 
 def get_other_person_membership(roomId, uid):
     trace(3, f"In get_other_person {roomId} {uid} ")
-    members=get_space_memberships(roomId)
-    for item in members['items']:
-        if (item['id'] != uid):
-            return(item)
-    return{}
+    members=get_space_memberships(roomId, True)
+    if 'items' in members:
+        for item in members['items']:
+            if (item['id'] != uid):
+                return(item)
+    return({})
 
 # generic events API 
 # 
@@ -612,7 +613,6 @@ def get_events(opts):
             return(d)
         else:
             trace(1,f"get_events error {s}: {r.reason}")  
-
     except requests.exceptions.RequestException as e:
         trace(1, f"error {e}")
 
@@ -625,6 +625,7 @@ def extract_msgs_csv(data):
     for item in data['items']:
         msg=item['data']
         title="N/A"
+        trace (3, f"got message: " + str(msg))
         if 'roomId' in msg:
             # direct rooms don't have a title. Need to extract the 'other' member in the space
             if (msg['roomType'] == 'direct'):
@@ -632,7 +633,8 @@ def extract_msgs_csv(data):
                 title=f"{other_member['personDisplayName']} ({other_member['personEmail']})"
             else:
                 room=get_wbx_data(f"rooms/{msg['roomId']}","")
-                title=room['title']
+                if ('title' in room) :
+                    title=room['title']
                 #print(title)       
         if ('created' in msg and 'text' in msg):
             writer.writerow([item['created'], msg['text'], title, msg['roomId']])
@@ -647,15 +649,18 @@ def uf_get_user_msgs(a):
     frm = datetime.datetime.now() - datetime.timedelta(30)
     utcFrm=frm.isoformat() + 'Z'
     to = UTCNOW
-    opts = {'max': 1000,'from':utcFrm,'to':to}
+    opts = {'max': 100,'from':utcFrm,'to':to}
 
     if (uid):
         # override default options w/ user options
         #
         if (len(a)==2):
-            userOpts=json.loads(a[1])
-            for k in userOpts:
-                opts[k]=userOpts[k]
+            try:
+                userOpts=json.loads(a[1])
+                for k in userOpts:
+                    opts[k]=userOpts[k]
+            except:
+                trace(1, f"error parsing {a[1]} not a valid JSON format")
 
         # construct url parameter string
         #
@@ -676,17 +681,20 @@ def extract_membership_csv(data):
     writer = csv.writer(output, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
     fields=['personEmail','personDisplayName', 'created']
     writer.writerow(fields)
+    if 'items' in data:
+        for item in data['items']:
+            row=[]
+            for f in fields:
+                row.append(item[f])
+            writer.writerow(row)
+        print (output.getvalue())
+    else:
+        trace(3, f"no membership data")  
 
-    for item in data['items']:
-        row=[]
-        for f in fields:
-            row.append(item[f])
-        writer.writerow(row)
-    print (output.getvalue())
 
 # get membership list for given room id  
 # 
-def get_space_memberships(rid):
+def get_space_memberships(rid, ignore_error=False):
     url=f"https://webexapis.com/v1/memberships/?roomId={rid}"
     trace(3, f"In get_memberships {url} ")
     try:
@@ -697,7 +705,9 @@ def get_space_memberships(rid):
             trace(3, f"success for get_memberships")  
             return(d)
         else:
-            trace(1,f"get_events error {s}: {r.reason}")  
+            not ignore_error and trace(1,f"get_memberships error {s}: {r.reason}")
+            trace(3, f"get_memberships error {s}: {r.reason} ")  
+            return({})
 
     except requests.exceptions.RequestException as e:
         trace(1, f"error {e}")
@@ -751,7 +761,7 @@ syntax = {
         "add-vm":                {"params":["email|csvFile", "base user email"],"fct":add_vm, "help":"set user(s) voicemail options based on another user's voicemail settings "},
     },
     "co" : {
-        "list-messages" :        {"params":["email, 'options'"],"fct":uf_get_user_msgs, "help":"list messages sent by a user (last 30 days by default) up to 1000 msgs. See expmaples for Options format."}, 
+        "list-messages" :        {"params":["email, 'options'"],"fct":uf_get_user_msgs, "help":"list messages sent by a user (last 100 in last 30 days by default) up to 1000 msgs. See expmaples for Options format."}, 
         "list-space-members" :   {"params":["id"],"fct":uf_get_memberships, "help":"list members in space "},            
     }
 }
