@@ -10,17 +10,31 @@ import argparse
 import re      
 import datetime
 import io    
+import importlib.metadata
+import inspect
+import pandas as pd
+# pd.set_option('display.max_colwidth', None)
+
+
+
+__version__ = my_name = "N/A"
+try:
+    __version__ = importlib.metadata.version(__package__)
+    my_name = __package__
+except:
+    print("Local run")
 
 logging.basicConfig()
 
-parser = argparse.ArgumentParser(prog="wbx_admin_utils", description='Various CLI commands for Webex bulk admin talks. ')
+parser = argparse.ArgumentParser(prog=my_name, description=f"CLI for Webex Admins and Compliance Officers. Version {__version__}")
 token=""
 if ( 'AUTH_BEARER' in os.environ ):
     token = os.environ['AUTH_BEARER']
 
 parser.add_argument("-t", "--token", dest="token", default=token, help="Access token")
 parser.add_argument("-d", "--debug", dest="debug", default=2, help="debug level: 1=errors, 2=success/info, 3=verbose/debug")   
-# parser.add_argument("-s", "--syntax", action='store_true', default=False, help="command list and syntax")   
+parser.add_argument("-c", "--csvdest", dest="csvdest", default="", help="csv destination file")   
+parser.add_argument("-T", "--title", dest="title", action="store_true", help="Add names/title on top of ids (when applicable). This option requires added processing.")   
 parser.add_argument('command', type=str, help='enter [%(prog)s help command] to list available commands')    
 parser.add_argument('subcommand', type=str, help='')    
 parser.add_argument('parameters', type=str, nargs='*', help='')    
@@ -43,12 +57,13 @@ UTCNOW = NOW.isoformat() + 'Z'
 ###################
 
 def trace(lev, msg):
+    caller = inspect.stack()[1][3]
     if (DEBUG >= lev ):
-        print(msg)
+        print(f"{caller}: {msg}")
 
 def is_email_format(id):
-    trace (3, f"In  is_email_format for {id}")  
-    m = re.search(".+@.+\..+$", id)
+    trace (3, f"for {id}")  
+    m = re.search(".+@.+[.].+$", id)
     if (m) :
         return (True)
     else:
@@ -80,7 +95,7 @@ def print_items(il, items):
 #
 def get_user_details(email_or_uid): 
 
-    trace (3, f"In get_user_details for {email_or_uid}")  
+    trace (3, f"processing user {email_or_uid}")  
 
     if ( is_email_format(email_or_uid)):
         uid = get_user_id(email_or_uid)
@@ -104,18 +119,17 @@ def get_user_details(email_or_uid):
 #
 def get_wbx_data(ep, params, ignore_error=False):
     url = "https://webexapis.com/v1/" + ep + params
-    trace(3, f"In get_wbx_data {url} ")
+    trace(3, f"{url} ")
     try:
         r = requests.get(url, headers=setHeaders())
         s = r.status_code
         if (s == 200):
             d = r.json()
-            trace(3, f"success for get_memberships")  
+            trace(3, f"success")  
             return(d)
         else:
-            not ignore_error and trace(1,f"get_wbx_data error {url} {s}: {r.reason}")  
+            not ignore_error and trace(1,f"error {url} {s}: {r.reason}")  
             return({})
-
     except requests.exceptions.RequestException as e:
         trace(1, f"error {e}")
 
@@ -124,17 +138,14 @@ def get_wbx_data(ep, params, ignore_error=False):
 # returms user id of given user email address 
 # returns "" if not found or some error   
 #
-def get_user_id(ue):
+def get_user_id(ue, ignore_error=False):
     header=setHeaders()
-    
-    trace (3, f"In get_user_id for {ue}")  
-
     # disable warnings about using certificate verification
     requests.packages.urllib3.disable_warnings()
     # get_user_url=urllib.parse.quote("https://webexapis.com/v1/people?email=" + ue)
     get_user_url="https://webexapis.com/v1/people?email=" +ue
 
-    trace (3, f"In get_user_id calling {get_user_url}")  
+    trace (3, f"calling {get_user_url}")  
     # send GET request and do not verify SSL certificate for simplicity of this example
     r = requests.get(get_user_url, headers=header, verify=True)
     s = r.status_code
@@ -152,7 +163,7 @@ def get_user_id(ue):
                 trace (3,f"email {ue} found {u['id']} ")
                 return(u['id'])     
     else :
-        trace(1,f"get_user_id got error {s}: {r.reason}")  
+        not ignore_error and trace(1,f"got error {s}: {r.reason}")  
         return("")
     
 # calls given fct for each user in given csv file 
@@ -187,7 +198,7 @@ def user_csv_command(fct, a, index=0):
                     # call provided function with email inserted 
                     a2=a.copy()
                     a2.insert(index + 1, ue)
-                    trace(3,f"in user_csv_command calling fct with {a2}")
+                    trace(3,f"calling fct with {a2}")
                     r=fct(a2)
                     if (r>0):
                         trace(3,f"{fct.__name__} command successful for user {ue}") 
@@ -239,7 +250,7 @@ def list_users_in_grp(a):
 #
 def uid_to_grp(cmd, uid,gid):
 
-    trace (3, f"In uid_to_grp {cmd}, {uid} , {gid} ")
+    trace (3, f"params : {cmd}, {uid} , {gid} ")
     header=setHeaders()
     # disable warnings about using certificate verification
     requests.packages.urllib3.disable_warnings()
@@ -283,7 +294,7 @@ def user_to_grp(a):
             trace(1,f"user_to_grp: {cmd} command failed for user {ue}") 
         return(r)
     else:
-        trace(1,f"user_to_grp: Failed to find user email {ue}") 
+        trace(1,f"Failed to find user email {ue}") 
         return(0)
     
 def add_user_to_grp(a):
@@ -303,14 +314,14 @@ def del_users_in_csv_to_grp(a):
     user_csv_command(user_to_grp, a)
 
 def uf_add_user_to_grp(a):
-    m = re.search(".*\.csv$", a[0])
+    m = re.search(".*[.]csv$", a[0])
     if (m):
         user_csv_command(add_user_to_grp, a)
     else:
         add_user_to_grp(a)
 
 def uf_del_user_to_grp(a):
-    m = re.search(".*\.csv$", a[0])
+    m = re.search(".*[.]csv$", a[0])
     if (m):
         user_csv_command(del_user_to_grp, a)
     else:
@@ -325,12 +336,9 @@ def uf_del_user_to_grp(a):
 #
 def get_user_vm(a):
     (ue)=(a[0])
-    
-    trace(3,f"in get_user_vm {a}")
-
+    trace(3,f"{a}")
     uid=get_user_id(ue)
-
-    trace(3,f"get_user_vm: got id {uid}")
+    trace(3,f"got id {uid}")
 
     if (uid):
         header=setHeaders()
@@ -343,7 +351,7 @@ def get_user_vm(a):
         if s == 200 :
             d = r.json()
             j=json.dumps(d)
-            trace(3, f"success for get_user_vm {ue} : got {j}")  
+            trace(3, f"success {ue} : got {j}")  
             return(j)
         else:
             trace(1, f"got error {s}: {r.reason}")  
@@ -356,7 +364,7 @@ def set_user_vm(a):
     (ue)=(a[0])
     (body)=(a[1])
 
-    trace(3,f"in set_user_vm {a}")
+    trace(3,f"{a}")
 
     uid=get_user_id(ue)
     if (uid):
@@ -374,7 +382,7 @@ def set_user_vm(a):
             trace(1, f"got error {s}: {r.reason}")
             return(-1)
     else:
-        trace(1,f"get_user_id {ue} error ") 
+        trace(1,f"{ue} error ") 
         return(-2)
 
 # Enables VM for given user email based on another user email 'template'
@@ -383,7 +391,7 @@ def set_user_vm(a):
 def set_user_vm_based_on_other_user(a):
     (ue, be)=(a[0], a[1])
 
-    trace(3,f"in set_user_vm_based_on_other_user {a}")
+    trace(3,f"{a}")
 
     tmpl=get_user_vm([be])
     if ( tmpl ):
@@ -392,14 +400,14 @@ def set_user_vm_based_on_other_user(a):
         a=[ue,bdy]
         return (set_user_vm(a))
     else:
-        trace(1,"get_user_vm error")
+        trace(1, "error no tmpl")
         return(-1)
 
 def add_vm(a): 
     set_user_vm_based_on_other_user(a)
 
 def uf_add_vm_csv(a): 
-    m = re.search(".*\.csv$", a[0])
+    m = re.search(".*[.]csv$", a[0])
     if (m):
         user_csv_command(add_vm, a)
     else:
@@ -415,7 +423,7 @@ def uf_add_vm_csv(a):
 #
 def del_user(a): 
     ue=a[0]
-    trace(3,f"in delete_user {a}")
+    trace(3,f"params : {a}")
 
     uid=get_user_id(ue)
     if (uid): 
@@ -426,15 +434,15 @@ def del_user(a):
             trace (2, f"User {ue} deleted ")
             return(1)
         else:
-            trace(1,f"del_user : Error {s}")  
+            trace(1,f"Error {s}")  
             trace(1,r.text.encode('utf8'))
             return(-1)
     else:
-        trace (1, f"del_user: {ue} not found")  
+        trace (1, f"{ue} not found")  
         return(-1)
     
 def uf_del_user(a):
-    m = re.search(".*\.csv$", a[0])
+    m = re.search(".*[.]csv$", a[0])
     if (m):
         user_csv_command(del_user,a)
     else:
@@ -450,7 +458,7 @@ def uf_del_user(a):
 def set_user_active(a): 
     activate=a[0] # boolean 
     ue=a[1]
-    trace(3,f"in deactivate_user {a}")
+    trace(3,f"{a}")
     user_json=get_user_details(ue)
     if (user_json):
         uid=user_json['id']
@@ -485,7 +493,7 @@ def uf_activate_user(a):
         case _:
             trace(1,f"Expecting 'Yes' to activate or 'No' to deactivate") 
             return(-1)
-    m = re.search(".*\.csv$", a[1])
+    m = re.search(".*[.]csv$", a[1])
     if (m):
         user_csv_command(set_user_active,a,1)
     else:
@@ -506,10 +514,10 @@ def del_user_auth(aid):
     r = requests.request("DELETE", url, headers=setHeaders())
     s = r.status_code
     if s == 204 :
-        trace (2, f" Auth {aid} deleted")
+        trace (2, f"Auth {aid} deleted")
         return(1)
     else :
-        trace(1,f" del_user_auth : Error {s}")  
+        trace(1,f"Error {s}")  
         trace(1,r.text.encode('utf8'))
         return(-1)
 
@@ -519,7 +527,7 @@ def del_user_auth(aid):
 #
 def user_auths(cmd, a): 
     ue=a[0]
-    trace(3,f"in reset_user {ue}")
+    trace(3,f"{ue}")
     uid=get_user_id(ue)
     if (uid):
         url=f"https://webexapis.com/v1/authorizations?personId={uid}"
@@ -546,11 +554,11 @@ def user_auths(cmd, a):
                         return(-1)    
             return(1)   
         else:
-            trace(1,f" reset_user : Error {s}")  
+            trace(1,f"Error {s}")  
             trace(1,r.text.encode('utf8'))
             return(-1)
     else:
-        trace (1, f"reset_user: {ue} not found")  
+        trace (1, f"{ue} not found")  
         return(-1)
 
 def uf_get_user_details(a):
@@ -568,7 +576,7 @@ def del_all_user_auths(a):
     return(user_auths("del", a))
 
 def uf_list_user_auths(a):
-    m = re.search(".*\.csv$", a[0])
+    m = re.search(".*[.]csv$", a[0])
     if (m):
         user_csv_command(uf_list_user_auths, a, 0)
     else:
@@ -578,7 +586,7 @@ def uf_list_user_auths(a):
 # reset all access for user email passed as array 
 # ( user facing )
 def uf_del_user_auths(a):
-    m = re.search(".*\.csv$", a[0])
+    m = re.search(".*[.]csv$", a[0])
     if (m):
         user_csv_command(del_all_user_auths, a)
     else:
@@ -591,7 +599,7 @@ def uf_del_user_auths(a):
 # get the 'other' (apart from given 'uid') person membership in a direct 1:1 space
 # 
 def get_other_person_membership(roomId, uid):
-    trace(3, f"In get_other_person {roomId} {uid} ")
+    trace(3, f"{roomId} {uid} ")
     members=get_space_memberships(roomId, True)
     if 'items' in members:
         for item in members['items']:
@@ -603,49 +611,65 @@ def get_other_person_membership(roomId, uid):
 # 
 def get_events(opts):
     url=f"https://webexapis.com/v1/events{opts}"
-    trace(3, f"In get_events {url} ")
+    trace(3, f"{url} ")
     try:
         r = requests.get(url, headers=setHeaders())
         s = r.status_code
         if (s == 200):
             d = r.json()
-            trace(3, f"success for get_events")  
+            trace(3, f"success")  
             return(d)
         else:
-            trace(1,f"get_events error {s}: {r.reason}")  
+            trace(1,f"error {s}: {r.reason}")  
     except requests.exceptions.RequestException as e:
         trace(1, f"error {e}")
 
 # pull msg info in csv fmt  
 # 
 def extract_msgs_csv(data):
-    output = io.StringIO()
-    writer = csv.writer(output, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-    writer.writerow(['created','text','title','roomId'])
+    # initialise pandas data frame 
+    #
+    cols = {'created':[],'text':[], 'files':[],'roomId':[]}
+    if args.title:
+        cols['title']=[]
+    df = pd.DataFrame(cols)
+    
+    # populates df from list of messages
+    #
     for item in data['items']:
         msg=item['data']
         title="N/A"
         trace (3, f"got message: " + str(msg))
-        if 'roomId' in msg:
-            # direct rooms don't have a title. Need to extract the 'other' member in the space
-            if (msg['roomType'] == 'direct'):
-                other_member=get_other_person_membership(msg['roomId'],msg['personId'])
-                title=f"{other_member['personDisplayName']} ({other_member['personEmail']})"
-            else:
-                room=get_wbx_data(f"rooms/{msg['roomId']}","")
-                if ('title' in room) :
-                    title=room['title']
-                #print(title)       
-        if ('created' in msg and 'text' in msg):
-            writer.writerow([item['created'], msg['text'], title, msg['roomId']])
-    print (output.getvalue())
+        
+        # new row from msg
+        new_row={}
+        for i in cols:
+            if i in msg:
+                new_row[i]=msg[i]
+                # trace(3, f"{i}, {msg[i]}")
 
-# user facing top level fct 
+        if ( args.title ):
+            if 'roomId' in msg:
+                # direct rooms don't have a title. Need to extract the 'other' member in the space
+                if (msg['roomType'] == 'direct'):
+                    other_member=get_other_person_membership(msg['roomId'],msg['personId'])
+                    title=f"{other_member['personDisplayName']} ({other_member['personEmail']})"
+                else:
+                    room=get_wbx_data(f"rooms/{msg['roomId']}","")
+                    if ('title' in room) :
+                        title=room['title']
+                new_row['title']=title
+        if ('created' in msg):
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+
+    print (df)
+    args.csvdest and df.to_csv(args.csvdest, index=False)
+
 # get messages for given user email 
 # optional parameters passed as json string like '{"max":1000}'
 # 
-def uf_get_user_msgs(a):
-    uid = get_user_id(a[0])
+def get_user_msgs(ue, user_opts=""):
+    uid = get_user_id(ue)
     frm = datetime.datetime.now() - datetime.timedelta(30)
     utcFrm=frm.isoformat() + 'Z'
     to = UTCNOW
@@ -654,13 +678,13 @@ def uf_get_user_msgs(a):
     if (uid):
         # override default options w/ user options
         #
-        if (len(a)==2):
+        if (user_opts):
             try:
-                userOpts=json.loads(a[1])
+                userOpts=json.loads(user_opts)
                 for k in userOpts:
                     opts[k]=userOpts[k]
             except:
-                trace(1, f"error parsing {a[1]} not a valid JSON format")
+                trace(1, f"error parsing {user_opts} not a valid JSON format")
 
         # construct url parameter string
         #
@@ -669,10 +693,23 @@ def uf_get_user_msgs(a):
             params=f"{params}&{k}={opts[k]}"
         trace (3, f"params = {params}")
         d=get_events(params)
-        extract_msgs_csv(d)
+        return(d)
 
     else:
-        trace(1, f"cannot find user {a[0]}")
+        trace(1, f"cannot find user {ue}")
+ 
+
+# user facing top level fct 
+# get messages for given user email 
+# optional parameters passed as json string like '{"max":1000}'
+# 
+def uf_get_user_msgs(a):
+    opts=""
+    if len(a) > 1 :
+        opts=a[1]
+    trace(3, f"got params {a}. Calling get_user_msgs {a[0]} {opts}")
+    d=get_user_msgs(a[0], opts)
+    extract_msgs_csv(d)
  
 # pull membership info in csv fmt  
 # 
@@ -696,7 +733,7 @@ def extract_membership_csv(data):
 # 
 def get_space_memberships(rid, ignore_error=False):
     url=f"https://webexapis.com/v1/memberships/?roomId={rid}"
-    trace(3, f"In get_memberships {url} ")
+    trace(3, f"{url} ")
     try:
         r = requests.get(url, headers=setHeaders())
         s = r.status_code
@@ -706,12 +743,74 @@ def get_space_memberships(rid, ignore_error=False):
             return(d)
         else:
             not ignore_error and trace(1,f"get_memberships error {s}: {r.reason}")
-            trace(3, f"get_memberships error {s}: {r.reason} ")  
+            trace(3, f"error {s}: {r.reason} ")  
             return({})
 
     except requests.exceptions.RequestException as e:
         trace(1, f"error {e}")
 
+# add messages to panda data frame    
+# 
+def add_msgs(df, ue, msgs):
+    for item in msgs['items']:
+        msg=item['data']
+        title="N/A"
+        trace (3, f"user {ue}, got message: " + str(msg)[:100] + "...")
+        if ('created'in msg):
+            new_row={'personEmail':ue, 'created':msg['created']}
+            if ( 'text' in msg ):
+                new_row['text']=msg['text']
+            if ( 'files' in msg ):
+                new_row['files']=msg['files']
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+            trace (3, f"user {ue} : message added " )
+        else:
+            trace (3, f"user {ue} : message {str(msg)} NOT added " )
+
+    return(df)
+
+# list messages sent by each member of given space   
+# options 
+# 
+def uf_get_space_msgs(a):
+
+    trace(3, str(a))
+    rid=a[0]
+    
+    if (len(a) > 1 ):
+        opts=a[1]
+    else:
+        opts=""
+
+    # initialise pandas data frame 
+    #
+    cols = {
+        'personEmail': [],
+        'created': [],
+        'text': [],
+        'files':[]
+    }
+    df = pd.DataFrame(cols)
+
+    # get list of users in space, extract their msgs, store in panda
+    #
+    data=get_space_memberships(rid)
+    if 'items' in data:
+        for user in data['items']:
+            ue=user['personEmail']
+            uid = get_user_id(ue)
+            trace(3, f"processing user {ue}")
+            if (uid):
+                msgs=get_user_msgs(ue, opts)
+                trace(3, f"got {str(msgs)[:100]}...")
+                df=add_msgs(df, ue, msgs)
+            else:
+                trace(3, f"{ue} not found")
+        df=df.sort_values(by=['created'])
+        print(df)
+        args.csvdest and df.to_csv(args.csvdest, index=False)
+    else:
+        trace(3, f"no membership data for {rid}")
 
 # user facing top level fct 
 # get memberships for given room id 
@@ -761,7 +860,8 @@ syntax = {
         "add-vm":                {"params":["email|csvFile", "base user email"],"fct":add_vm, "help":"set user(s) voicemail options based on another user's voicemail settings "},
     },
     "co" : {
-        "list-messages" :        {"params":["email, 'options'"],"fct":uf_get_user_msgs, "help":"list messages sent by a user (last 100 in last 30 days by default) up to 1000 msgs. See expmaples for Options format."}, 
+        "list-user-sent-msgs" :  {"params":["email, 'options'"],"fct":uf_get_user_msgs, "help":"list messages sent by a user (last 100 in last 30 days by default) up to 1000 msgs. See expmaples for Options format."}, 
+        "list-space-msgs" :      {"params":["roomid, 'options'"],"fct":uf_get_space_msgs, "help":"list messages in a space (last 100 in last 30 days by default) up to 1000 msgs per user. See expmaples for Options format."}, 
         "list-space-members" :   {"params":["id"],"fct":uf_get_memberships, "help":"list members in space "},            
     }
 }
@@ -795,7 +895,7 @@ def main():
     if (len(args.parameters) >= len(par_arr)):
         # call function associated with command 
         fct=syntax[cmd1][cmd2]['fct']
-        trace(3,f"in main: calling {fct.__name__} with {args.parameters}")
+        trace(3,f"calling {fct.__name__} with {args.parameters}")
         fct(args.parameters)
     else:
         print("Incorrect parameters. Check syntax ")
