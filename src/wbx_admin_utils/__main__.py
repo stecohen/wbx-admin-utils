@@ -117,7 +117,7 @@ def get_user_details(email_or_uid):
 # generic get data 
 # returns {} if not happy  
 #
-def get_wbx_data(ep, params, ignore_error=False):
+def get_wbx_data(ep, params="", ignore_error=False):
     url = "https://webexapis.com/v1/" + ep + params
     trace(3, f"{url} ")
     try:
@@ -152,7 +152,7 @@ def get_user_id(ue, ignore_error=False):
     if s == 200 :
         j = r.json()
         if ( len(j["items"]) == 0 ):
-            trace (0, f"user email {ue} not found")
+            not ignore_error and trace (1, f"user email {ue} not found")
             return("")
         else:
             if ( len(j["items"]) > 1 ):
@@ -595,18 +595,7 @@ def uf_del_user_auths(a):
 ###############
 ## Comp Officer stuff 
 ################
-
-# get the 'other' (apart from given 'uid') person membership in a direct 1:1 space
-# 
-def get_other_person_membership(roomId, uid):
-    trace(3, f"{roomId} {uid} ")
-    members=get_space_memberships(roomId, True)
-    if 'items' in members:
-        for item in members['items']:
-            if (item['id'] != uid):
-                return(item)
-    return({})
-
+        
 # generic events API 
 # 
 def get_events(opts):
@@ -624,52 +613,79 @@ def get_events(opts):
     except requests.exceptions.RequestException as e:
         trace(1, f"error {e}")
 
-# pull msg info in csv fmt  
-# 
-def extract_msgs_csv(data):
-    # initialise pandas data frame 
-    #
-    cols = {'created':[],'text':[], 'files':[],'roomId':[]}
-    if args.title:
-        cols['title']=[]
-    df = pd.DataFrame(cols)
-    
-    # populates df from list of messages
-    #
-    for item in data['items']:
-        msg=item['data']
-        title="N/A"
-        trace (3, f"got message: " + str(msg))
         
-        # new row from msg
-        new_row={}
-        for i in cols:
-            if i in msg:
-                new_row[i]=msg[i]
-                # trace(3, f"{i}, {msg[i]}")
+class msgsDF:
+    cols = {'id':[],'sentBy':[],'created':[], 'text':[], 'fileCount':[],'files':[], 'roomType':[], 'roomId':[]}
+    
+    def __init__(self, add_title=False):
+        mycols=self.cols
+        if  (add_title):
+            mycols['title']=[]
+        self.df = pd.DataFrame(mycols)
+    
+    def add_msgs(self, ue, msgs, add_title=False):
+        #
+        # iterate messages
+        for item in msgs['items']:
+            msg=item['data']
+            title="N/A"
+            trace (3, f"got message: " + str(msg))
+            #
+            # new row from msg
+            new_row={}
+            for i in self.cols:
+                if i in msg:
+                    new_row[i]=msg[i]
+            #
+            # add sender         
+            new_row['sentBy']=ue
+            #
+            # process files column 
+            fc=0
+            if ('files' in msg):
+                fc = len(msg['files'])
+            new_row['fileCount'] = int(fc)
+            #
+            # add columns if long process option 
+            if ( add_title ):
+                if 'roomId' in msg:
+                    # direct rooms don't have a title. Need to extract the 'other' member in the space
+                    if (msg['roomType'] == 'direct'):
+                        other_member=get_other_person_membership(msg['roomId'],msg['personId'])
+                        # title=f"{other_member['personDisplayName']} ({other_member['personEmail']})"
+                        title=f"{other_member['personEmail']}"
 
-        if ( args.title ):
-            if 'roomId' in msg:
-                # direct rooms don't have a title. Need to extract the 'other' member in the space
-                if (msg['roomType'] == 'direct'):
-                    other_member=get_other_person_membership(msg['roomId'],msg['personId'])
-                    title=f"{other_member['personDisplayName']} ({other_member['personEmail']})"
-                else:
-                    room=get_wbx_data(f"rooms/{msg['roomId']}","")
-                    if ('title' in room) :
-                        title=room['title']
-                new_row['title']=title
-        if ('created' in msg):
-            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+                    else:
+                        room=get_wbx_data(f"rooms/{msg['roomId']}","")
+                        if ('title' in room) :
+                            title=room['title']
+                    new_row['title']=title
+            #
+            # finally add to DF  
+            if ('created' in msg):
+                self.df = pd.concat([self.df, pd.DataFrame([new_row])], ignore_index=True)
+            #
+        return(self.df)
+    
 
-    print (df)
-    args.csvdest and df.to_csv(args.csvdest, index=False)
+# get the 'other' (apart from given 'uid') person membership in a direct 1:1 space
+# 
+def get_other_person_membership(roomId, uid):
+    trace(3, f"{roomId} {uid} ")
+    members=get_space_memberships(roomId, True)
+    if 'items' in members:
+        for item in members['items']:
+            if (item['id'] != uid):
+                return(item)
+    return({})
 
-# get messages for given user email 
+# get messages obj for given user email 
 # optional parameters passed as json string like '{"max":1000}'
+# returns empty obj if not found
 # 
 def get_user_msgs(ue, user_opts=""):
-    uid = get_user_id(ue)
+
+    uid = get_user_id(ue, True)
     frm = datetime.datetime.now() - datetime.timedelta(30)
     utcFrm=frm.isoformat() + 'Z'
     to = UTCNOW
@@ -697,7 +713,23 @@ def get_user_msgs(ue, user_opts=""):
 
     else:
         trace(1, f"cannot find user {ue}")
- 
+        return({})
+
+# print panda DF from list of messages
+# pull msg info in csv fmt  
+# 
+def print_user_msgs(ue, data):
+    # 
+    # initialise pandas data frame 
+    msgsdf=msgsDF()
+    msgsdf.add_msgs(ue, data)
+    #
+    # print to screen and file if option on 
+    df = msgsdf.df.astype({'fileCount': 'int'})
+    print(df.loc[:, ~df.columns.isin(['id','files', 'roomId'])])
+    args.csvdest and df.to_csv(args.csvdest, index=False)
+
+
 
 # user facing top level fct 
 # get messages for given user email 
@@ -709,25 +741,43 @@ def uf_get_user_msgs(a):
         opts=a[1]
     trace(3, f"got params {a}. Calling get_user_msgs {a[0]} {opts}")
     d=get_user_msgs(a[0], opts)
-    extract_msgs_csv(d)
- 
-# pull membership info in csv fmt  
-# 
-def extract_membership_csv(data):
-    output = io.StringIO()
-    writer = csv.writer(output, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-    fields=['personEmail','personDisplayName', 'created']
-    writer.writerow(fields)
-    if 'items' in data:
-        for item in data['items']:
-            row=[]
-            for f in fields:
-                row.append(item[f])
-            writer.writerow(row)
-        print (output.getvalue())
-    else:
-        trace(3, f"no membership data")  
+    if d:
+        print_user_msgs(a[0],d)
 
+# list messages sent by each member of given space   
+# options 
+# 
+def uf_get_space_msgs(a):
+    #
+    # init
+    trace(3, str(a))
+    rid=a[0]
+    if (len(a) > 1 ):
+        opts=a[1]
+    else:
+        opts=""
+    msgsdf=msgsDF(False) # msgs DF
+
+    # get list of users in space, extract their msgs, store in panda DF
+    #
+    members=get_space_memberships(rid)
+    if 'items' in members:
+        for user in members['items']:
+            ue=user['personEmail']
+            uid = get_user_id(ue)
+            trace(3, f"processing user {ue}")
+            if (uid):
+                msgs=get_user_msgs(ue, opts)
+                trace(3, f"got {str(msgs)[:100]}...")
+                msgsdf.add_msgs(ue, msgs, False)
+            else:
+                trace(3, f"{ue} not found")
+        # print
+        df=msgsdf.df.sort_values(by=['created'])
+        print(df.loc[:, ~df.columns.isin(['id','files', 'roomId'])])
+        args.csvdest and df.to_csv(args.csvdest, index=False)
+    else:
+        trace(3, f"no membership data for {rid}")
 
 # get membership list for given room id  
 # 
@@ -745,73 +795,26 @@ def get_space_memberships(rid, ignore_error=False):
             not ignore_error and trace(1,f"get_memberships error {s}: {r.reason}")
             trace(3, f"error {s}: {r.reason} ")  
             return({})
-
     except requests.exceptions.RequestException as e:
         trace(1, f"error {e}")
 
-# add messages to panda data frame    
+# pull membership info in csv fmt  
 # 
-def add_msgs(df, ue, msgs):
-    for item in msgs['items']:
-        msg=item['data']
-        title="N/A"
-        trace (3, f"user {ue}, got message: " + str(msg)[:100] + "...")
-        if ('created'in msg):
-            new_row={'personEmail':ue, 'created':msg['created']}
-            if ( 'text' in msg ):
-                new_row['text']=msg['text']
-            if ( 'files' in msg ):
-                new_row['files']=msg['files']
+def extract_membership_csv(members):
+    #
+    cols = {'personEmail':[],'personDisplayName':[],'created':[]}
+    df=pd.DataFrame(cols)
+    if 'items' in members:
+        for mbr in members['items']:
+            new_row={}
+            for f in cols:
+                if f in mbr:
+                    new_row[f]=mbr[f]
             df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-            trace (3, f"user {ue} : message added " )
-        else:
-            trace (3, f"user {ue} : message {str(msg)} NOT added " )
-
-    return(df)
-
-# list messages sent by each member of given space   
-# options 
-# 
-def uf_get_space_msgs(a):
-
-    trace(3, str(a))
-    rid=a[0]
-    
-    if (len(a) > 1 ):
-        opts=a[1]
-    else:
-        opts=""
-
-    # initialise pandas data frame 
-    #
-    cols = {
-        'personEmail': [],
-        'created': [],
-        'text': [],
-        'files':[]
-    }
-    df = pd.DataFrame(cols)
-
-    # get list of users in space, extract their msgs, store in panda
-    #
-    data=get_space_memberships(rid)
-    if 'items' in data:
-        for user in data['items']:
-            ue=user['personEmail']
-            uid = get_user_id(ue)
-            trace(3, f"processing user {ue}")
-            if (uid):
-                msgs=get_user_msgs(ue, opts)
-                trace(3, f"got {str(msgs)[:100]}...")
-                df=add_msgs(df, ue, msgs)
-            else:
-                trace(3, f"{ue} not found")
-        df=df.sort_values(by=['created'])
-        print(df)
+        print(df.loc[:, ~df.columns.isin(['id','files', 'roomId'])])
         args.csvdest and df.to_csv(args.csvdest, index=False)
     else:
-        trace(3, f"no membership data for {rid}")
-
+        trace(3, f"no membership data")  
 # user facing top level fct 
 # get memberships for given room id 
 # 
@@ -860,17 +863,14 @@ syntax = {
         "add-vm":                {"params":["email|csvFile", "base user email"],"fct":add_vm, "help":"set user(s) voicemail options based on another user's voicemail settings "},
     },
     "co" : {
-        "list-user-sent-msgs" :  {"params":["email, 'options'"],"fct":uf_get_user_msgs, "help":"list messages sent by a user (last 100 in last 30 days by default) up to 1000 msgs. See expmaples for Options format."}, 
-        "list-space-msgs" :      {"params":["roomid, 'options'"],"fct":uf_get_space_msgs, "help":"list messages in a space (last 100 in last 30 days by default) up to 1000 msgs per user. See expmaples for Options format."}, 
+        "list-user-sent-msgs" :  {"params":["email, 'options'"],"fct":uf_get_user_msgs, "help":"list messages sent by a user (last 100 in last 30 days by default) up to 1000 msgs. See expmaples for Options format. -T option applies"}, 
+        "list-space-msgs" :      {"params":["roomid, 'options'"],"fct":uf_get_space_msgs, "help":"list messages in a space (last 100 in last 30 days by default) up to 1000 msgs per user. See expmaples for Options format. -T option applies"}, 
         "list-space-members" :   {"params":["id"],"fct":uf_get_memberships, "help":"list members in space "},            
     }
 }
 
 
 def main():
-
-    # print(args)
-
     # first 2 params are commands
     #
     (cmd1, cmd2) = (args.command, args.subcommand )
