@@ -595,7 +595,25 @@ def uf_del_user_auths(a):
 ###############
 ## Comp Officer stuff 
 ################
-        
+
+# generic head request  
+# 
+def req_head(url):
+    trace(3, f"{url} ")
+    try:
+        r = requests.head(url, headers=setHeaders())
+        s = r.status_code
+        if (s == 200):
+            d = r.headers
+            trace(3, f"success")  
+            return(d)
+        else:
+            trace(1,f"error {s}: {r.reason}")
+            return({})
+    except requests.exceptions.RequestException as e:
+        trace(1, f"error {e}")
+        return({})
+
 # generic events API 
 # 
 def get_events(opts):
@@ -615,7 +633,7 @@ def get_events(opts):
 
         
 class msgsDF:
-    cols = {'id':[],'sentBy':[],'created':[], 'text':[], 'fileCount':[],'files':[], 'roomType':[], 'roomId':[]}
+    cols = {'id':[],'sentBy':[],'created':[], 'text':[], 'fileCount':[],'files':[], 'fileNames':[], 'roomType':[], 'roomId':[]}
     
     def __init__(self, add_title=False):
         mycols=self.cols
@@ -640,13 +658,25 @@ class msgsDF:
             # add sender         
             new_row['sentBy']=ue
             #
-            # process files column 
+            # process files column : add 'fileCount' and 'fileNames' values
             fc=0
+            file_list=[]
             if ('files' in msg):
                 fc = len(msg['files'])
+                fileURLs=msg['files']
+                for furl in fileURLs:
+                    trace(3, f"processing {furl}")
+                    hds=req_head(furl)
+                    if 'content-disposition' in hds:
+                        cd=hds['content-disposition']
+                        file_list.append(cd)
+                    else:
+                        trace(3, f"could not find 'content-disposition' header")
+                new_row['fileNames']=''.join(file_list)
+                trace(3, f"got {new_row['fileNames']}")
             new_row['fileCount'] = int(fc)
             #
-            # add columns if long process option 
+            # add column 'title' if long process option 
             if ( add_title ):
                 if 'roomId' in msg:
                     # direct rooms don't have a title. Need to extract the 'other' member in the space
@@ -721,15 +751,13 @@ def get_user_msgs(ue, user_opts=""):
 def print_user_msgs(ue, data):
     # 
     # initialise pandas data frame 
-    msgsdf=msgsDF()
-    msgsdf.add_msgs(ue, data)
+    msgsdf=msgsDF(args.title)
+    msgsdf.add_msgs(ue, data, args.title)
     #
     # print to screen and file if option on 
     df = msgsdf.df.astype({'fileCount': 'int'})
     print(df.loc[:, ~df.columns.isin(['id','files', 'roomId'])])
     args.csvdest and df.to_csv(args.csvdest, index=False)
-
-
 
 # user facing top level fct 
 # get messages for given user email 
