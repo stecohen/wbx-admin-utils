@@ -1,5 +1,5 @@
 dist/
-pypipublish.sh
-pypipublishtest.sh
+*.sh
+test/
 .DS_Store
 __pycache__/

@@ -14,14 +14,13 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
 ]
-keywords = ["Webex", "Control Hub", "groups", "compliance"]
+keywords = ["Webex", "Control Hub", "groups"]
 requires-python = ">=3.10"
 dependencies = [
   'requests', 
   'pandas'
 ]
 repository = "https://github.com/stecohen/wbx-admin-utils"
-
 
 [project.optional-dependencies]
 

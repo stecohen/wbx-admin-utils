@@ -12,8 +12,8 @@ import datetime
 import io    
 import importlib.metadata
 import inspect
-import pandas as pd
-# pd.set_option('display.max_colwidth', None)
+import pandas as pd # pd.set_option('display.max_colwidth', None)
+import shutil
 
 
 
@@ -133,8 +133,6 @@ def get_wbx_data(ep, params="", ignore_error=False):
     except requests.exceptions.RequestException as e:
         trace(1, f"error {e}")
 
-
-
 # returms user id of given user email address 
 # returns "" if not found or some error   
 #
@@ -162,8 +160,11 @@ def get_user_id(ue, ignore_error=False):
                 u = j["items"][0]
                 trace (3,f"email {ue} found {u['id']} ")
                 return(u['id'])     
-    else :
+    elif s == 404:
         not ignore_error and trace(1,f"got error {s}: {r.reason}")  
+        return("")
+    else :
+        trace(1,f"got error {s}: {r.reason}")  
         return("")
     
 # calls given fct for each user in given csv file 
@@ -631,7 +632,12 @@ def get_events(opts):
     except requests.exceptions.RequestException as e:
         trace(1, f"error {e}")
 
-        
+
+# extracts file name from content disposition header field 
+def extract_file_name(cd):
+    name=re.findall('filename="(.+)"', cd)[0]
+    return(name)
+    
 class msgsDF:
     cols = {'id':[],'sentBy':[],'created':[], 'text':[], 'fileCount':[],'files':[], 'fileNames':[], 'roomType':[], 'roomId':[]}
     
@@ -640,7 +646,7 @@ class msgsDF:
         if  (add_title):
             mycols['title']=[]
         self.df = pd.DataFrame(mycols)
-    
+        
     def add_msgs(self, ue, msgs, add_title=False):
         #
         # iterate messages
@@ -658,23 +664,24 @@ class msgsDF:
             # add sender         
             new_row['sentBy']=ue
             #
-            # process files column : add 'fileCount' and 'fileNames' values
-            fc=0
+            # process 'files' column : add 'fileCount' and 'fileNames' values
+            file_count=0
             file_list=[]
             if ('files' in msg):
-                fc = len(msg['files'])
+                file_count = len(msg['files'])
                 fileURLs=msg['files']
                 for furl in fileURLs:
                     trace(3, f"processing {furl}")
+                    # read headers
                     hds=req_head(furl)
                     if 'content-disposition' in hds:
-                        cd=hds['content-disposition']
-                        file_list.append(cd)
+                        fn=extract_file_name(hds['content-disposition'])
+                        file_list.append(fn)
                     else:
-                        trace(3, f"could not find 'content-disposition' header")
-                new_row['fileNames']=''.join(file_list)
+                        trace(3, f"could not find 'content-disposition' header in {furl}")
+                new_row['fileNames']=file_list
                 trace(3, f"got {new_row['fileNames']}")
-            new_row['fileCount'] = int(fc)
+            new_row['fileCount'] = int(file_count)
             #
             # add column 'title' if long process option 
             if ( add_title ):
@@ -851,6 +858,43 @@ def uf_get_memberships(a):
     data = get_space_memberships(id)
     extract_membership_csv(data)
 
+# download url contents   
+# 
+def dowmload_contents(url):
+    hds=req_head(url)
+    if ('Content-Disposition' in hds ):
+        cd=hds['Content-Disposition'] 
+        trace(3, f"got file {str(hds)}")
+        file_name=re.findall('filename="(.+)"', cd)[0]
+        """ NOT needed
+        ct=hds['Content-Type']
+        ctl= ct.split("/") # content type list 
+        mode="wb"
+        match ctl[0]:
+            case "text":
+                mode="wb" 
+        trace(3,f"got {file_name} {ctl[0]} {mode}")
+        """
+        try:    
+            with requests.get(url, headers=setHeaders()) as r:
+                with open(file_name, mode="wb") as f:
+                    f.write(r.content)
+                    print(f"{file_name} downloaded.")
+        except:
+            trace(1, f"Error downloading {url}")
+    else:
+        trace(1, f"no content-disposition in {url}")
+
+
+def uf_download_msg_attachements(a):
+    id = a[0]
+    msg = get_wbx_data(f"messages/{id}")
+    if 'files' in msg:
+        files=msg['files']
+        for f in files:
+            dowmload_contents(f)
+    else:
+        trace(1, f"no attachments found in msg {id}")
 
 ###############
 ## syntax
@@ -893,8 +937,9 @@ syntax = {
     "co" : {
         "list-user-sent-msgs" :  {"params":["email, 'options'"],"fct":uf_get_user_msgs, "help":"list messages sent by a user (last 100 in last 30 days by default) up to 1000 msgs. See expmaples for Options format. -T option applies"}, 
         "list-space-msgs" :      {"params":["roomid, 'options'"],"fct":uf_get_space_msgs, "help":"list messages in a space (last 100 in last 30 days by default) up to 1000 msgs per user. See expmaples for Options format. -T option applies"}, 
-        "list-space-members" :   {"params":["id"],"fct":uf_get_memberships, "help":"list members in space "},            
-    }
+        "list-space-members" :   {"params":["id"],"fct":uf_get_memberships, "help":"list members in space "},  
+        "get-msg-attachments" :  {"params":["id"],"fct":uf_download_msg_attachements, "help":"download file attachements in message ID"},  
+    }          
 }
 
 
