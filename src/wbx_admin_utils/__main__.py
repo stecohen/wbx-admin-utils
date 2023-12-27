@@ -12,7 +12,8 @@ import datetime
 import io    
 import importlib.metadata
 import inspect
-import pandas as pd # pd.set_option('display.max_colwidth', None)
+import pandas as pd # 
+pd.set_option('display.max_colwidth', 80)
 import shutil
 
 
@@ -639,15 +640,23 @@ def extract_file_name(cd):
     return(name)
     
 class msgsDF:
-    cols = {'id':[],'sentBy':[],'created':[], 'text':[], 'fileCount':[],'files':[], 'fileNames':[], 'roomType':[], 'roomId':[]}
+
+    cols_user = {'id':[], 'created':[], 'text':[], 'fileCount':[],'files':[], 'fileNames':[], 'roomType':[], 'roomId':[]}
+    cols_space = {'id':[],'sentBy':[],'created':[], 'text':[], 'fileCount':[],'files':[], 'fileNames':[]}
     
-    def __init__(self, add_title=False):
-        mycols=self.cols
-        if  (add_title):
+    def __init__(self, add_title=False, IsSpace=False):
+        mycols=self.cols_user
+        if IsSpace:
+            mycols=self.cols_space
+        if  add_title:
             mycols['title']=[]
         self.df = pd.DataFrame(mycols)
         
-    def add_msgs(self, ue, msgs, add_title=False):
+    def add_msgs(self, ue, msgs, add_title=False, IsSpace=False):
+
+        mycols=self.cols_user
+        if IsSpace:
+            mycols=self.cols_space
         #
         # iterate messages
         for item in msgs['items']:
@@ -657,7 +666,7 @@ class msgsDF:
             #
             # new row from msg
             new_row={}
-            for i in self.cols:
+            for i in mycols:
                 if i in msg:
                     new_row[i]=msg[i]
             #
@@ -755,29 +764,38 @@ def get_user_msgs(ue, user_opts=""):
 # print panda DF from list of messages
 # pull msg info in csv fmt  
 # 
-def print_user_msgs(ue, data):
-    # 
-    # initialise pandas data frame 
-    msgsdf=msgsDF(args.title)
-    msgsdf.add_msgs(ue, data, args.title)
+def print_user_msgs(df):
     #
     # print to screen and file if option on 
-    df = msgsdf.df.astype({'fileCount': 'int'})
-    print(df.loc[:, ~df.columns.isin(['id','files', 'roomId'])])
+    df = df.astype({'fileCount': 'int'})
+    print(df.loc[:, ~df.columns.isin(['sentBy', 'id','files', 'roomId'])])
     args.csvdest and df.to_csv(args.csvdest, index=False)
+
+
+# print to screen and file if option on 
+#
+def print_space_msgs(df):
+    df = df.astype({'fileCount': 'int'})
+    print(df.loc[:, ~df.columns.isin(['id', 'files'])])
+    args.csvdest and df.to_csv(args.csvdest, index=False)
+
 
 # user facing top level fct 
 # get messages for given user email 
 # optional parameters passed as json string like '{"max":1000}'
 # 
 def uf_get_user_msgs(a):
+
+    # initialise pandas data frame 
+    msgdf=msgsDF(args.title, False)
     opts=""
     if len(a) > 1 :
         opts=a[1]
     trace(3, f"got params {a}. Calling get_user_msgs {a[0]} {opts}")
     d=get_user_msgs(a[0], opts)
     if d:
-        print_user_msgs(a[0],d)
+        df=msgdf.add_msgs(a[0], d, args.title, False)
+        print_user_msgs(df)
 
 # list messages sent by each member of given space   
 # options 
@@ -791,7 +809,7 @@ def uf_get_space_msgs(a):
         opts=a[1]
     else:
         opts=""
-    msgsdf=msgsDF(False) # msgs DF
+    msgdf=msgsDF(False, True) # msgs DF
 
     # get list of users in space, extract their msgs, store in panda DF
     #
@@ -804,13 +822,11 @@ def uf_get_space_msgs(a):
             if (uid):
                 msgs=get_user_msgs(ue, opts)
                 trace(3, f"got {str(msgs)[:100]}...")
-                msgsdf.add_msgs(ue, msgs, False)
+                df=msgdf.add_msgs(ue, msgs, False, True)
             else:
                 trace(3, f"{ue} not found")
         # print
-        df=msgsdf.df.sort_values(by=['created'])
-        print(df.loc[:, ~df.columns.isin(['id','files', 'roomId'])])
-        args.csvdest and df.to_csv(args.csvdest, index=False)
+        print_space_msgs(df)
     else:
         trace(3, f"no membership data for {rid}")
 
@@ -850,6 +866,7 @@ def extract_membership_csv(members):
         args.csvdest and df.to_csv(args.csvdest, index=False)
     else:
         trace(3, f"no membership data")  
+
 # user facing top level fct 
 # get memberships for given room id 
 # 
@@ -865,27 +882,22 @@ def dowmload_contents(url):
     if ('Content-Disposition' in hds ):
         cd=hds['Content-Disposition'] 
         trace(3, f"got file {str(hds)}")
-        file_name=re.findall('filename="(.+)"', cd)[0]
-        """ NOT needed
-        ct=hds['Content-Type']
-        ctl= ct.split("/") # content type list 
-        mode="wb"
-        match ctl[0]:
-            case "text":
-                mode="wb" 
-        trace(3,f"got {file_name} {ctl[0]} {mode}")
-        """
-        try:    
-            with requests.get(url, headers=setHeaders()) as r:
-                with open(file_name, mode="wb") as f:
-                    f.write(r.content)
-                    print(f"{file_name} downloaded.")
-        except:
-            trace(1, f"Error downloading {url}")
+        file_name = re.findall('filename="(.+)"', cd)[0]
+        if file_name:
+            try:    
+                with requests.get(url, headers=setHeaders()) as r:
+                    with open(file_name, mode="wb") as f:
+                        f.write(r.content)
+                        print(f"{file_name} downloaded.")
+            except:
+                trace(1, f"Error downloading {url}")
+        else:
+            trace(1, f"cannot extract filename in {cd}")
     else:
         trace(1, f"no content-disposition in {url}")
 
-
+# download files in given msg id   
+# 
 def uf_download_msg_attachements(a):
     id = a[0]
     msg = get_wbx_data(f"messages/{id}")
@@ -899,26 +911,24 @@ def uf_download_msg_attachements(a):
 ###############
 ## syntax
 ################
-
-def print_help(a): 
-    print("Here is some help")
+                
+def cmd_syntax(cmd): 
+    for scmd in syntax[cmd]:
+        params=syntax[cmd][scmd]['params']
+        hlp=syntax[cmd][scmd]['help']
+        prms=""
+        for p in params:
+            prms=f"{prms} <{p}>"  
+        print("   " + scmd + prms + " : " + hlp )
+        # print(" " + scmd + ' ' + " ".join(params) + " : " + hlp )
 
 def print_syntax(): 
     for cmd in syntax:
         print(cmd)
-        for scmd in syntax[cmd]:
-            params=syntax[cmd][scmd]['params']
-            hlp=syntax[cmd][scmd]['help']
-            prms=""
-            for p in params:
-                prms=f"{prms} <{p}>"  
-            print("   " + scmd + prms + " : " + hlp )
-            # print(" " + scmd + ' ' + " ".join(params) + " : " + hlp )
+        help(cmd)
 
-syntax = { 
-    "help" : { 
-        "commands":              {"params":[],"fct":print_syntax, "help":"display list of available commands"},
-    },
+
+syntax = {   
     "group" : {
         "list":                 {"params":[],"fct":get_grps_list, "help":"list all groups in admin org"},
         "list-users":           {"params":["group_id"],"fct":list_users_in_grp, "help":"list user ids (max 500) in given group id"},
@@ -935,13 +945,12 @@ syntax = {
         "add-vm":                {"params":["email|csvFile", "base user email"],"fct":add_vm, "help":"set user(s) voicemail options based on another user's voicemail settings "},
     },
     "co" : {
-        "list-user-sent-msgs" :  {"params":["email, 'options'"],"fct":uf_get_user_msgs, "help":"list messages sent by a user (last 100 in last 30 days by default) up to 1000 msgs. See expmaples for Options format. -T option applies"}, 
+        "list-user-sent-msgs" :  {"params":["email, 'options'"],"fct":uf_get_user_msgs, "help":"list messages sent by a user (last 100 in last 30 days by default) up to 1000 msgs. See expmaples for Options format. -T option applies"},
         "list-space-msgs" :      {"params":["roomid, 'options'"],"fct":uf_get_space_msgs, "help":"list messages in a space (last 100 in last 30 days by default) up to 1000 msgs per user. See expmaples for Options format. -T option applies"}, 
         "list-space-members" :   {"params":["id"],"fct":uf_get_memberships, "help":"list members in space "},  
         "get-msg-attachments" :  {"params":["id"],"fct":uf_download_msg_attachements, "help":"download file attachements in message ID"},  
     }          
 }
-
 
 def main():
     # first 2 params are commands
@@ -958,8 +967,12 @@ def main():
         exit()
 
     if cmd2 not in syntax[cmd1]:
-        print ("Command [" + cmd2 + "] is invalid")
-        print_syntax()
+        match cmd2:
+            case "help"| "h":
+                print ("Sub command list:")
+            case _:
+                print ("Command [" + cmd2 + "] is invalid")
+        cmd_syntax(cmd1)
         exit()
 
     # check param count
