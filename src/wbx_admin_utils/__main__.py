@@ -768,7 +768,7 @@ def print_user_msgs(df):
     #
     # print to screen and file if option on 
     df = df.astype({'fileCount': 'int'})
-    print(df.loc[:, ~df.columns.isin(['sentBy', 'id','files', 'roomId'])])
+    print(df.loc[:, ~df.columns.isin(['sentBy', 'id','files', 'roomId', 'fileNames'])])
     args.csvdest and df.to_csv(args.csvdest, index=False)
 
 
@@ -776,7 +776,7 @@ def print_user_msgs(df):
 #
 def print_space_msgs(df):
     df = df.astype({'fileCount': 'int'})
-    print(df.loc[:, ~df.columns.isin(['id', 'files'])])
+    print(df.loc[:, ~df.columns.isin(['id', 'files', 'fileNames'])])
     args.csvdest and df.to_csv(args.csvdest, index=False)
 
 
@@ -791,6 +791,13 @@ def uf_get_user_msgs(a):
     opts=""
     if len(a) > 1 :
         opts=a[1]
+        print (opts)
+        try:
+            optsJ=json.loads(opts)
+        except:
+            trace(1, f"error {opts} not in valid JSON format")
+            return(-1)
+        
     trace(3, f"got params {a}. Calling get_user_msgs {a[0]} {opts}")
     d=get_user_msgs(a[0], opts)
     if d:
@@ -805,10 +812,14 @@ def uf_get_space_msgs(a):
     # init
     trace(3, str(a))
     rid=a[0]
+    opts=""
     if (len(a) > 1 ):
         opts=a[1]
-    else:
-        opts=""
+        try:
+            optsJ=json.loads(opts)
+        except:
+            trace(1, f"error {opts} not in valid JSON format")
+            return(-1)
     msgdf=msgsDF(False, True) # msgs DF
 
     # get list of users in space, extract their msgs, store in panda DF
