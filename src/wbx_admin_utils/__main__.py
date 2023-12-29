@@ -17,7 +17,6 @@ pd.set_option('display.max_colwidth', 80)
 import shutil
 
 
-
 __version__ = my_name = "N/A"
 try:
     __version__ = importlib.metadata.version(__package__)
@@ -27,7 +26,7 @@ except:
 
 logging.basicConfig()
 
-parser = argparse.ArgumentParser(prog=my_name, description=f"CLI for Webex Admins and Compliance Officers. Version {__version__}")
+parser = argparse.ArgumentParser(prog=my_name, description=f"Commands for Webex Admins and Compliance Officers. Version {__version__}")
 token=""
 if ( 'AUTH_BEARER' in os.environ ):
     token = os.environ['AUTH_BEARER']
@@ -36,8 +35,8 @@ parser.add_argument("-t", "--token", dest="token", default=token, help="Access t
 parser.add_argument("-d", "--debug", dest="debug", default=2, help="debug level: 1=errors, 2=success/info, 3=verbose/debug")   
 parser.add_argument("-c", "--csvdest", dest="csvdest", default="", help="csv destination file")   
 parser.add_argument("-T", "--title", dest="title", action="store_true", help="Add names/title on top of ids (when applicable). This option requires added processing.")   
-parser.add_argument('command', type=str, help='enter [%(prog)s help command] to list available commands')    
-parser.add_argument('subcommand', type=str, help='')    
+parser.add_argument('command', type=str, help='enter [%(prog)s help me] to list available commands')    
+parser.add_argument('subcommand', type=str, nargs='?', help='')    
 parser.add_argument('parameters', type=str, nargs='*', help='')    
 
 args = parser.parse_args()
@@ -791,7 +790,6 @@ def uf_get_user_msgs(a):
     opts=""
     if len(a) > 1 :
         opts=a[1]
-        print (opts)
         try:
             optsJ=json.loads(opts)
         except:
@@ -931,13 +929,11 @@ def cmd_syntax(cmd):
         for p in params:
             prms=f"{prms} <{p}>"  
         print("   " + scmd + prms + " : " + hlp )
-        # print(" " + scmd + ' ' + " ".join(params) + " : " + hlp )
 
 def print_syntax(): 
     for cmd in syntax:
         print(cmd)
-        help(cmd)
-
+        cmd_syntax(cmd)
 
 syntax = {   
     "group" : {
@@ -956,12 +952,13 @@ syntax = {
         "add-vm":                {"params":["email|csvFile", "base user email"],"fct":add_vm, "help":"set user(s) voicemail options based on another user's voicemail settings "},
     },
     "co" : {
-        "list-user-sent-msgs" :  {"params":["email, 'options'"],"fct":uf_get_user_msgs, "help":"list messages sent by a user (last 100 in last 30 days by default) up to 1000 msgs. See expmaples for Options format. -T option applies"},
-        "list-space-msgs" :      {"params":["roomid, 'options'"],"fct":uf_get_space_msgs, "help":"list messages in a space (last 100 in last 30 days by default) up to 1000 msgs per user. See expmaples for Options format. -T option applies"}, 
-        "list-space-members" :   {"params":["id"],"fct":uf_get_memberships, "help":"list members in space "},  
-        "get-msg-attachments" :  {"params":["id"],"fct":uf_download_msg_attachements, "help":"download file attachements in message ID"},  
+        "user-sent-msgs" :       {"params":["email, 'options'"],"fct":uf_get_user_msgs, "help":"list messages sent by a user (last 100 in last 30 days by default) up to 1000 msgs. See expmaples for Options format. -T option applies"},
+        "space-msgs" :           {"params":["roomid, 'options'"],"fct":uf_get_space_msgs, "help":"list messages in a space (last 100 in last 30 days by default) up to 1000 msgs per user. See examples for Options format. -T option applies"}, 
+        "space-members" :        {"params":["id"],"fct":uf_get_memberships, "help":"list members in space "},  
+        "msg-attachments" :      {"params":["id"],"fct":uf_download_msg_attachements, "help":"download file attachements in message ID"},  
     }          
 }
+
 
 def main():
     # first 2 params are commands
@@ -969,7 +966,10 @@ def main():
     (cmd1, cmd2) = (args.command, args.subcommand )
 
     if cmd1 == "help":
-        print_syntax()
+        if cmd2:
+            cmd_syntax(cmd2)
+        else:
+            print_syntax()
         exit()
 
     if cmd1 not in syntax:
